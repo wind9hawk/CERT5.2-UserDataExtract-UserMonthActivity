@@ -11,6 +11,12 @@
 # 2.1.3 然后重新遍历用户的每一个月每一天，将该天的该域所有行为写到对应文件中，关闭，继续下一天；
 # 2.2 遍历其他所有行为域，得到该用户的第一版记录；
 
+# 问题变更
+#
+#
+# 由于HTTP等文件有28个G，单一用户的多次遍历时间成本太高，因此依据CERT数据按照时间排列的规则，决定针对每个用户的
+# 每天记录，多次打开关闭文件I/O操作，这样只需要每个用户最多遍历两次大文件即可；
+
 # 需要注意的是，再提取记录时不包括ID与内容数据，即
 # Logon: date,user,pc,activity
 # File: date,user,pc,filename,activity,to_removable_media,from_removable_media
@@ -135,156 +141,270 @@ for user in Users_CERT52[:1]:
     # Flag_Activity = [Counts_Logon, Counts_File, Counts_HTTP, Counts_Email, Counts_Device]
     print '......<<<<<<开始分析 ', user, ':', LogonPath, '>>>>>>......\n'
     if Flag_Activity[0] > 0:
-        for day in User_Days:
-            f_day_path = UserPath + '\\' + day[0:7] + '\\' + day + '\\' + 'Logon.csv'
-            f_day = open(f_day_path, 'w')
-            with open(LogonPath, 'r') as f:
-                for line in f:
-                    line_lst = line.strip('\n').strip(',').split(',')
-                    # Logon原始数据格式：id,date,user,pc,activity
-                    # Logon目标数据格式：Logon: date,user,pc,activity
-                    if line_lst[2] == 'user':
+        Days_Analyzed = [] # 已经分析过的日期列表
+        with open(LogonPath, 'r') as f:
+            for line in f:
+                line_lst = line.strip('\n').strip(',').split(',')
+                if line_lst[2] == 'user':
+                    continue
+                if line_lst[2] != user:
+                    continue
+                # 考虑先后写入该用户在对应日期的该行为数据
+                y, m, d = User_Month_Day_Extract.Extract_Date(line_lst[1])
+                date = y + '-' + m + '-' + d
+                if line_lst[2] == user and date in User_Days:
+                    # 准备写入user对应的day下的activity文件
+                    # 需要先判断是否存在，若存在，直接w即可，遇到新日期则
+                    if len(Days_Analyzed) == 0:
+                        Days_Analyzed.append(date)
+                        # 未分析过该文件，需要新建立
+                        f_day_path = UserPath + '\\' + date[0:7] + '\\' + date + '\\' + 'Logon.csv'
+                        f_day = open(f_day_path, 'w')
+                        for ele in line_lst[1:-1]:
+                            f_day.write(ele)
+                            f_day.write(',')
+                        f_day.write('\n')
                         continue
-                    if line_lst[2] != user:
+                    if len(Days_Analyzed) > 0 and date in Days_Analyzed:
+                        # 遇到连续的该用户该天的记录
+                        # 继续补充即可
+                        # file数据原始格式为：
+                        # id,date,user,pc,filename,activity,to_removable_media,from_removable_media,content
+                        for ele in line_lst[1:-1]:
+                            f_day.write(ele)
+                            f_day.write(',')
+                        f_day.write('\n')
                         continue
-                    y, m, d = User_Month_Day_Extract.Extract_Date(line_lst[1])
-                    if y + '-' + m + '-' + d != day:
+                    if len(Days_Analyzed) > 0 and date not in Days_Analyzed:
+                        # 遇到该用户新的一天记录，上一个记录完结
+                        f_day.close()
+                        print user, Days_Analyzed[-1], 'Logon数据写入完毕...\n\n'
+                        Days_Analyzed.append(date)
+                        f_day_path = UserPath + '\\' + date[0:7] + '\\' + date + '\\' + 'Logon.csv'
+                        f_day = open(f_day_path, 'w')
+                        for ele in line_lst[1:-1]:
+                            f_day.write(ele)
+                            f_day.write(',')
+                        f_day.write('\n')
                         continue
-                    for ele in line_lst[1:]:
-                        f_day.write(ele)
-                        f_day.write(',')
-                    f_day.write('\n')
-            print user, day, 'Logon数据写入完毕...\n\n'
-        print '......<<<<<<', user, 'Logon数据写入完毕>>>>>>......\n\n'
+            f_day.close()
     else:
-        print user, ' 不存在Logon记录，不写入文件...\n'
+        print '......<<<<<<', user, '不存在Logon数据>>>>>>......\n\n'
 
     print '......<<<<<<开始分析 ', user, ':', FilePath, '>>>>>>......\n'
     if Flag_Activity[1] > 0:
-        for day in User_Days:
-            f_day_path = UserPath + '\\' + day[0:7] + '\\' + day + '\\' + 'File.csv'
-            f_day = open(f_day_path, 'w')
-            with open(FilePath, 'r') as f:
-                for line in f:
-                    line_lst = line.strip('\n').strip(',').split(',')
-                    # Logon原始数据格式：id,date,user,pc,filename,activity,to_removable_media,from_removable_media,content
-                    # Logon目标数据格式：date,user,pc,filename,activity,to_removable_media,from_removable_media
-                    if line_lst[2] == 'user':
+        Days_Analyzed = [] # 已经分析过的日期列表
+        with open(FilePath, 'r') as f:
+            for line in f:
+                line_lst = line.strip('\n').strip(',').split(',')
+                if line_lst[2] == 'user':
+                    continue
+                if line_lst[2] != user:
+                    continue
+                # 考虑先后写入该用户在对应日期的该行为数据
+                y, m, d = User_Month_Day_Extract.Extract_Date(line_lst[1])
+                date = y + '-' + m + '-' + d
+                if line_lst[2] == user and date in User_Days:
+                    # 准备写入user对应的day下的activity文件
+                    # 需要先判断是否存在，若存在，直接w即可，遇到新日期则
+                    if len(Days_Analyzed) == 0:
+                        Days_Analyzed.append(date)
+                        # 未分析过该文件，需要新建立
+                        f_day_path = UserPath + '\\' + date[0:7] + '\\' + date + '\\' + 'File.csv'
+                        f_day = open(f_day_path, 'w')
+                        for ele in line_lst[1:-1]:
+                            f_day.write(ele)
+                            f_day.write(',')
+                        f_day.write('\n')
                         continue
-                    if line_lst[2] != user:
+                    if len(Days_Analyzed) > 0 and date in Days_Analyzed:
+                        # 遇到连续的该用户该天的记录
+                        # 继续补充即可
+                        # file数据原始格式为：
+                        # id,date,user,pc,filename,activity,to_removable_media,from_removable_media,content
+                        for ele in line_lst[1:-1]:
+                            f_day.write(ele)
+                            f_day.write(',')
+                        f_day.write('\n')
                         continue
-                    y, m, d = User_Month_Day_Extract.Extract_Date(line_lst[1])
-                    if y + '-' + m + '-' + d != day:
+                    if len(Days_Analyzed) > 0 and date not in Days_Analyzed:
+                        # 遇到该用户新的一天记录，上一个记录完结
+                        f_day.close()
+                        print user, Days_Analyzed[-1], 'File数据写入完毕...\n\n'
+                        Days_Analyzed.append(date)
+                        f_day_path = UserPath + '\\' + date[0:7] + '\\' + date + '\\' + 'File.csv'
+                        f_day = open(f_day_path, 'w')
+                        for ele in line_lst[1:-1]:
+                            f_day.write(ele)
+                            f_day.write(',')
+                        f_day.write('\n')
                         continue
-                    print '当前的记录是：', line_lst, '\n', line_lst[1:-1], '\n\n'
-                    for ele in line_lst[1:-1]:
-                        f_day.write(ele)
-                        f_day.write(',')
-                    f_day.write('\n')
-                    #sys.exit()
-            print user, day, 'File数据写入完毕...\n\n'
+            f_day.close()
     else:
-        print user, ' 不存在File记录，不写入文件...\n'
+        print '......<<<<<<', user, '不存在file数据>>>>>>......\n\n'
     print '......<<<<<<', user, 'File数据写入完毕>>>>>>......\n\n'
 
 
     print '......<<<<<<开始分析 ', user, ':', HttpPath, '>>>>>>......\n'
     if Flag_Activity[2] > 0:
-        for day in User_Days:
-            f_day_path = UserPath + '\\' + day[0:7] + '\\' + day + '\\' + 'HTTP.csv'
-            f_day = open(f_day_path, 'w')
-            with open(HttpPath, 'r') as f:
-                for line in f:
-                    line_lst = line.strip('\n').strip(',').split(',')
-                    # Logon原始数据格式：id,date,user,pc,url,content
-                    # Logon目标数据格式：date,user,pc,url
-                    if line_lst[2] == 'user':
+        Days_Analyzed = [] # 已经分析过的日期列表
+        with open(HttpPath, 'r') as f:
+            for line in f:
+                line_lst = line.strip('\n').strip(',').split(',')
+                if line_lst[2] == 'user':
+                    continue
+                if line_lst[2] != user:
+                    continue
+                # 考虑先后写入该用户在对应日期的该行为数据
+                y, m, d = User_Month_Day_Extract.Extract_Date(line_lst[1])
+                date = y + '-' + m + '-' + d
+                if line_lst[2] == user and date in User_Days:
+                    # 准备写入user对应的day下的activity文件
+                    # 需要先判断是否存在，若存在，直接w即可，遇到新日期则
+                    if len(Days_Analyzed) == 0:
+                        Days_Analyzed.append(date)
+                        # 未分析过该文件，需要新建立
+                        f_day_path = UserPath + '\\' + date[0:7] + '\\' + date + '\\' + 'HTTP.csv'
+                        f_day = open(f_day_path, 'w')
+                        for ele in line_lst[1:-1]:
+                            f_day.write(ele)
+                            f_day.write(',')
+                        f_day.write('\n')
                         continue
-                    if line_lst[2] != user:
+                    if len(Days_Analyzed) > 0 and date in Days_Analyzed:
+                        # 遇到连续的该用户该天的记录
+                        # 继续补充即可
+                        for ele in line_lst[1:-1]:
+                            f_day.write(ele)
+                            f_day.write(',')
+                        f_day.write('\n')
                         continue
-                    y, m, d = User_Month_Day_Extract.Extract_Date(line_lst[1])
-                    if y + '-' + m + '-' + d != day:
+                    if len(Days_Analyzed) > 0 and date not in Days_Analyzed:
+                        # 遇到该用户新的一天记录，上一个记录完结
+                        f_day.close()
+                        print user, Days_Analyzed[-1], 'HTTP数据写入完毕...\n\n'
+                        Days_Analyzed.append(date)
+                        f_day_path = UserPath + '\\' + date[0:7] + '\\' + date + '\\' + 'HTTP.csv'
+                        f_day = open(f_day_path, 'w')
+                        for ele in line_lst[1:-1]:
+                            f_day.write(ele)
+                            f_day.write(',')
+                        f_day.write('\n')
                         continue
-                    for ele in line_lst[1:-1]:
-                        f_day.write(ele)
-                        f_day.write(',')
-                    f_day.write('\n')
-            print user, day, 'HTTP数据写入完毕...\n\n'
+            f_day.close()
     else:
-        print user, ' 不存在HTTP记录，不写入文件...\n'
+        print '......<<<<<<', user, '不存在HTTP数据>>>>>>......\n\n'
     print '......<<<<<<', user, 'HTTP数据写入完毕>>>>>>......\n\n'
 
     print '......<<<<<<开始分析 ', user, ':', EmailPath, '>>>>>>......\n'
     if Flag_Activity[3] > 0:
-        for day in User_Days:
-            f_day_path = UserPath + '\\' + day[0:7] + '\\' + day + '\\' + 'Email.csv'
-            f_day = open(f_day_path, 'w')
-            with open(EmailPath, 'r') as f:
-                for line in f:
-                    line_lst = line.strip('\n').strip(',').split(',')
-                    # Logon原始数据格式：id,date,user,pc,to,cc,bcc,from,activity,size,attachments,content
-                    # Logon目标数据格式：date,user,pc,to,cc,bcc,from,activity,size,attachments
-                    if line_lst[2] == 'user':
+        Days_Analyzed = [] # 已经分析过的日期列表
+        with open(EmailPath, 'r') as f:
+            for line in f:
+                line_lst = line.strip('\n').strip(',').split(',')
+                if line_lst[2] == 'user':
+                    continue
+                if line_lst[2] != user:
+                    continue
+                # 考虑先后写入该用户在对应日期的该行为数据
+                y, m, d = User_Month_Day_Extract.Extract_Date(line_lst[1])
+                date = y + '-' + m + '-' + d
+                if line_lst[2] == user and date in User_Days:
+                    # 准备写入user对应的day下的activity文件
+                    # 需要先判断是否存在，若存在，直接w即可，遇到新日期则
+                    if len(Days_Analyzed) == 0:
+                        Days_Analyzed.append(date)
+                        # 未分析过该文件，需要新建立
+                        f_day_path = UserPath + '\\' + date[0:7] + '\\' + date + '\\' + 'Email.csv'
+                        f_day = open(f_day_path, 'w')
+                        for ele in line_lst[1:-1]:
+                            f_day.write(ele)
+                            f_day.write(',')
+                        f_day.write('\n')
                         continue
-                    if line_lst[2] != user:
+                    if len(Days_Analyzed) > 0 and date in Days_Analyzed:
+                        # 遇到连续的该用户该天的记录
+                        # 继续补充即可
+                        # file数据原始格式为：
+                        # id,date,user,pc,filename,activity,to_removable_media,from_removable_media,content
+                        for ele in line_lst[1:-1]:
+                            f_day.write(ele)
+                            f_day.write(',')
+                        f_day.write('\n')
                         continue
-                    y, m, d = User_Month_Day_Extract.Extract_Date(line_lst[1])
-                    if y + '-' + m + '-' + d != day:
+                    if len(Days_Analyzed) > 0 and date not in Days_Analyzed:
+                        # 遇到该用户新的一天记录，上一个记录完结
+                        f_day.close()
+                        print user, Days_Analyzed[-1], 'Email数据写入完毕...\n\n'
+                        Days_Analyzed.append(date)
+                        f_day_path = UserPath + '\\' + date[0:7] + '\\' + date + '\\' + 'Email.csv'
+                        f_day = open(f_day_path, 'w')
+                        for ele in line_lst[1:-1]:
+                            f_day.write(ele)
+                            f_day.write(',')
+                        f_day.write('\n')
                         continue
-                    for ele in line_lst[1:-1]:
-                        f_day.write(ele)
-                        f_day.write(',')
-                    f_day.write('\n')
-            print user, day, 'Email数据写入完毕...\n\n'
+            f_day.close()
     else:
-        print user, ' 不存在Email记录，不写入文件...\n'
+        print '......<<<<<<', user, '不存在email数据>>>>>>......\n\n'
     print '......<<<<<<', user, 'Email数据写入完毕>>>>>>......\n\n'
 
     print '......<<<<<<开始分析 ', user, ':', DevicePath, '>>>>>>......\n'
     if Flag_Activity[4] > 0:
-        for day in User_Days:
-            f_day_path = UserPath + '\\' + day[0:7] + '\\' + day + '\\' + 'Device.csv'
-            f_day = open(f_day_path, 'w')
-            with open(DevicePath, 'r') as f:
-                for line in f:
-                    line_lst = line.strip('\n').strip(',').split(',')
-                    # Logon原始数据格式：id,date,user,pc,file_tree,activity
-                    # Logon目标数据格式：date,user,pc,file_tree,activity
-                    if line_lst[2] == 'user':
+        Days_Analyzed = [] # 已经分析过的日期列表
+        with open(DevicePath, 'r') as f:
+            for line in f:
+                line_lst = line.strip('\n').strip(',').split(',')
+                if line_lst[2] == 'user':
+                    continue
+                if line_lst[2] != user:
+                    continue
+                # 考虑先后写入该用户在对应日期的该行为数据
+                y, m, d = User_Month_Day_Extract.Extract_Date(line_lst[1])
+                date = y + '-' + m + '-' + d
+                if line_lst[2] == user and date in User_Days:
+                    # 准备写入user对应的day下的activity文件
+                    # 需要先判断是否存在，若存在，直接w即可，遇到新日期则
+                    if len(Days_Analyzed) == 0:
+                        Days_Analyzed.append(date)
+                        # 未分析过该文件，需要新建立
+                        f_day_path = UserPath + '\\' + date[0:7] + '\\' + date + '\\' + 'Device.csv'
+                        f_day = open(f_day_path, 'w')
+                        for ele in line_lst[1:-1]:
+                            f_day.write(ele)
+                            f_day.write(',')
+                        f_day.write('\n')
                         continue
-                    if line_lst[2] != user:
+                    if len(Days_Analyzed) > 0 and date in Days_Analyzed:
+                        # 遇到连续的该用户该天的记录
+                        # 继续补充即可
+                        # file数据原始格式为：
+                        # id,date,user,pc,filename,activity,to_removable_media,from_removable_media,content
+                        for ele in line_lst[1:-1]:
+                            f_day.write(ele)
+                            f_day.write(',')
+                        f_day.write('\n')
                         continue
-                    y, m, d = User_Month_Day_Extract.Extract_Date(line_lst[1])
-                    if y + '-' + m + '-' + d != day:
+                    if len(Days_Analyzed) > 0 and date not in Days_Analyzed:
+                        # 遇到该用户新的一天记录，上一个记录完结
+                        f_day.close()
+                        print user, Days_Analyzed[-1], 'Device数据写入完毕...\n\n'
+                        Days_Analyzed.append(date)
+                        f_day_path = UserPath + '\\' + date[0:7] + '\\' + date + '\\' + 'Device.csv'
+                        f_day = open(f_day_path, 'w')
+                        for ele in line_lst[1:-1]:
+                            f_day.write(ele)
+                            f_day.write(',')
+                        f_day.write('\n')
                         continue
-                    for ele in line_lst[1:]:
-                        f_day.write(ele)
-                        f_day.write(',')
-                    f_day.write('\n')
-            print user, day, 'Device数据写入完毕...\n\n'
+            f_day.close()
     else:
-        print user, ' 不存在Device记录，不写入文件...\n'
+        print '......<<<<<<', user, '不存在device数据>>>>>>......\n\n'
     print '......<<<<<<', user, 'Device数据写入完毕>>>>>>......\n\n'
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+print '......<<<<<<CERT5.2 所有用户分日期分行为域数据整理完毕>>>>>>......\n\n'
 UserDate.close()
 sys.exit()
 
