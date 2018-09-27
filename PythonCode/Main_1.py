@@ -30,6 +30,14 @@ import sys # 用于返回当前目录，以及关闭程序等
 import User_Month_Day_Extract
 
 
+def Extract_Insider_2():
+    # G:\GitHub\Essay-Experiments\Experiment-JobSatisfactory-201808\r5.2-2
+    DirPath = r'G:\GitHub\Essay-Experiments\Experiment-JobSatisfactory-201808\r5.2-2'
+    Insiders_2 = []
+    for file in os.listdir(DirPath):
+        # r5.2-2-BYO1846.csv
+        Insiders_2.append(file[7:-4])
+    return Insiders_2
 
 
 # 开始上述程序编写
@@ -68,12 +76,14 @@ DevicePath = CERTPath + '\\' + 'device.csv'
 # 进入每个用户的大循环
 # 尝试将所有用户的记录月份日期信息保存在一个大的CSV中
 Results_Path = r'G:\GitHub\Essay-Experiments\CERT5.2-Results'  # CERT5.2数据的存放位置，不更新到GitHub
-Results_Path = Results_Path + '\\' + 'CERT5.2-Users-Records' # 更新目录路径
-if os.path.exists(Results_Path) == False:
-    os.makedirs(Results_Path + '\\' + 'CERT5.2-Users-Records')
+if os.path.exists(Results_Path + '\\' + 'CERT5.2-Insiders2-Records') == False:
+    os.makedirs(Results_Path + '\\' + 'CERT5.2-Insiders2-Records')
+Results_Path = Results_Path + '\\' + 'CERT5.2-Insiders2-Records' # 更新目录路径
 # sys.exit()
 UserDate = open('User-Date-CERT52.csv', 'w')
-for user in Users_CERT52[:1]:
+Insider_2 = Extract_Insider_2()
+#for user in Users_CERT52[:1]:
+for user in Insider_2:
     # 第一件工作是获得用户的两个时间列表
     User_Months = []
     User_Days = []
